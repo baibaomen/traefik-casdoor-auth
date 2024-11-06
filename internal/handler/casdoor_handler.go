@@ -30,12 +30,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 自定义错误类型
-var (
-	ErrTokenExpired = fmt.Errorf("token has expired")
-	ErrInvalidToken = fmt.Errorf("invalid token")
-)
-
 type Replacement struct {
 	ShouldReplaceBody   bool                `json:"shouldReplaceBody"`
 	Body                string              `json:"body"`
@@ -44,10 +38,9 @@ type Replacement struct {
 }
 
 type TokenInfo struct {
-	AccessToken  string `json:"access_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int    `json:"expires_in"`
-	RefreshToken string `json:"refresh_token"`
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int    `json:"expires_in"`
 }
 
 func ForwardAuthHandler(c *gin.Context) {
@@ -58,16 +51,6 @@ func ForwardAuthHandler(c *gin.Context) {
 		if err := verifyToken(token); err == nil {
 			ForwardAuthHandlerWithState(c)
 			return
-		}
-		// token无效，尝试刷新
-		refreshToken, refreshErr := c.Cookie("refresh-token")
-		if refreshErr == nil {
-			if newToken, err := refreshAccessToken(refreshToken); err == nil {
-				// 存储新token
-				storeTokens(c, newToken)
-				ForwardAuthHandlerWithState(c)
-				return
-			}
 		}
 	}
 
@@ -172,6 +155,16 @@ func CasdoorCallbackHandler(c *gin.Context) {
 	c.Redirect(307, url)
 }
 
+// verifyToken 验证JWT token的有效性
+func verifyToken(token string) error {
+	// 直接使用 Casdoor 的验证方法
+	_, err := auth.ParseJwtToken(token)
+	if err != nil {
+		return fmt.Errorf("invalid token: %w", err)
+	}
+	return nil
+}
+
 // getAndStoreToken 获取OAuth token
 func getAndStoreToken(c *gin.Context, code, state string) (*TokenInfo, error) {
 	token, err := auth.GetOAuthToken(code, state)
@@ -179,11 +172,13 @@ func getAndStoreToken(c *gin.Context, code, state string) (*TokenInfo, error) {
 		return nil, fmt.Errorf("failed to get OAuth token: %w", err)
 	}
 
+	// 计算过期时间（秒）
+	expiresIn := int(token.Expiry.Sub(time.Now()).Seconds())
+
 	tokenInfo := &TokenInfo{
-		AccessToken:  token.AccessToken,
-		TokenType:    token.TokenType,
-		ExpiresIn:    token.ExpiresIn,
-		RefreshToken: token.RefreshToken,
+		AccessToken: token.AccessToken,
+		TokenType:   token.TokenType,
+		ExpiresIn:   expiresIn,
 	}
 
 	return tokenInfo, nil
@@ -198,57 +193,6 @@ func storeTokens(c *gin.Context, token *TokenInfo) {
 	}
 	domain := splits[1]
 
-	// 存储access token
+	// 只存储 access token
 	c.SetCookie("access-token", token.AccessToken, token.ExpiresIn, "/", domain, false, true)
-
-	// 存储refresh token（如果有）
-	if token.RefreshToken != "" {
-		// refresh token通常有更长的有效期
-		c.SetCookie("refresh-token", token.RefreshToken, token.ExpiresIn*2, "/", domain, false, true)
-	}
-}
-
-// verifyToken 验证JWT token的有效性
-func verifyToken(token string) error {
-	claims, err := auth.ParseJwtToken(token)
-	if err != nil {
-		return fmt.Errorf("failed to parse JWT token: %w", err)
-	}
-
-	// 验证token是否过期
-	if !claims.Valid() {
-		return ErrTokenExpired
-	}
-
-	// 验证发行者是否正确
-	if claims.Issuer != config.CurrentConfig.CasdoorEndpoint {
-		return fmt.Errorf("invalid token issuer")
-	}
-
-	// 验证客户端ID
-	if claims.Audience != config.CurrentConfig.CasdoorClientId {
-		return fmt.Errorf("invalid client id in token")
-	}
-
-	// 检查token是否即将过期（比如30秒内）
-	if time.Until(claims.ExpiresAt.Time) < 30*time.Second {
-		return ErrTokenExpired
-	}
-
-	return nil
-}
-
-// refreshAccessToken 刷新access token
-func refreshAccessToken(refreshToken string) (*TokenInfo, error) {
-	token, err := auth.RefreshToken(refreshToken)
-	if err != nil {
-		return nil, fmt.Errorf("failed to refresh token: %w", err)
-	}
-
-	return &TokenInfo{
-		AccessToken:  token.AccessToken,
-		TokenType:    token.TokenType,
-		ExpiresIn:    token.ExpiresIn,
-		RefreshToken: token.RefreshToken,
-	}, nil
 }
