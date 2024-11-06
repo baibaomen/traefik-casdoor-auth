@@ -55,13 +55,13 @@ func ForwardAuthHandler(c *gin.Context) {
 	}
 
 	// 如果没有token或token无效，检查是否有code和state
-	clientcode, err := c.Cookie("client-code")
+	err := c.Cookie("client-code")
 	if err != nil {
 		log.Println("no client code found in cookie")
 		ForwardAuthHandlerWithoutState(c)
 		return
 	}
-	clientstate, err := c.Cookie("client-state")
+	err := c.Cookie("client-state")
 	if err != nil {
 		log.Println("no state found in cookie")
 		ForwardAuthHandlerWithoutState(c)
