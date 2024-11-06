@@ -68,16 +68,6 @@ func ForwardAuthHandler(c *gin.Context) {
 		return
 	}
 
-	// 获取token并存储
-	tokenInfo, err := getAndStoreToken(c, clientcode, clientstate)
-	if err != nil {
-		log.Printf("invalid code and state: %s\n", err.Error())
-		ForwardAuthHandlerWithoutState(c)
-		return
-	}
-
-	// 存储tokens
-	storeTokens(c, tokenInfo)
 	ForwardAuthHandlerWithState(c)
 }
 
@@ -147,6 +137,17 @@ func CasdoorCallbackHandler(c *gin.Context) {
 		})
 		return
 	}
+
+	// 获取token并存储
+	tokenInfo, err := getAndStoreToken(c, code, stateString)
+	if err != nil {
+		log.Printf("invalid code and state: %s\n", err.Error())
+		ForwardAuthHandlerWithoutState(c)
+		return
+	}
+
+	// 存储tokens
+	storeTokens(c, tokenInfo)
 
 	scheme := state.Header.Get("X-Forwarded-Proto")
 	host := state.Header.Get("X-Forwarded-Host")
